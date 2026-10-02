@@ -7,7 +7,7 @@ Make sure to edit path to wow folder in config file before use.
 
 
 
-[Binaries]: ../../Releases
+[Binaries]: ../../releases
 
 # Build instructions
 First grab the code using git:
