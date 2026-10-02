@@ -132,6 +132,41 @@ namespace CASCExplorer
                         progress.Report((int)(++numDone / (float)numFiles * 100));
                     }
                 }
+
+                // The ARM64 client executable isn't tagged x86_64, so the loop above never picks it up.
+                // The install manifest names it "WowClassic-arm64.exe" (hyphen); accept the underscore
+                // spelling too. Extract it next to WowClassic.exe. SaveFileTo swallows errors in local
+                // mode, so verify the file actually landed on disk instead of trusting it.
+                string[] armNames = ["WowClassic-arm64.exe", "WowClassic_arm64.exe"];
+                string armDir = Path.Combine("data", _casc.Config.BuildName, "Windows_install_files");
+
+                var armEntry = _casc.Install.GetEntries()
+                    .FirstOrDefault(e => armNames.Contains(e.Name, StringComparer.OrdinalIgnoreCase));
+
+                if (armEntry == null)
+                    throw new FileNotFoundException("No WowClassic-arm64.exe entry found in the install manifest. Other install files were extracted.");
+
+                string armExe = armEntry.Name;
+                string armPath = Path.Combine(armDir, armExe);
+
+                // 1) via the install manifest entry, trying every encoding key
+                if (_casc.Encoding.GetEntry(armEntry.MD5, out EncodingEntry armEnc))
+                {
+                    foreach (var key in armEnc.Keys)
+                    {
+                        _casc.SaveFileTo(key, armDir, armExe);
+                        if (File.Exists(armPath))
+                            break;
+                    }
+                }
+
+                // 2) fall back to the normal name lookup (root first, then install),
+                //    the same path used when extracting from the file tree
+                if (!File.Exists(armPath))
+                    _casc.SaveFileTo(armExe, armDir);
+
+                if (!File.Exists(armPath))
+                    throw new FileNotFoundException(armExe + " was found in the install manifest but its data could not be read. Other install files were extracted.");
             });
         }
 
