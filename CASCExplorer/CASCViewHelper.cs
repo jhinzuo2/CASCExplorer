@@ -107,8 +107,19 @@ namespace CASCExplorer
 
                 foreach (string platform in platforms)
                 {
-                    var installFiles = _casc.Install.GetEntriesByTags(platform, "x86_64", "US");
+                    var installFiles = _casc.Install.GetEntriesByTags(platform, "x86_64", "US").ToList();
                     var build = _casc.Config.BuildName;
+
+                    // The ARM64 client executable isn't tagged x86_64, so the tag filter above
+                    // misses it. Add it by name alongside the regular WowClassic.exe.
+                    if (platform == "Windows")
+                    {
+                        foreach (var arm in _casc.Install.GetEntriesByName("WowClassic_arm64.exe"))
+                        {
+                            if (!installFiles.Any(f => f.Name.Equals(arm.Name, StringComparison.OrdinalIgnoreCase)))
+                                installFiles.Add(arm);
+                        }
+                    }
 
                     int numFiles = installFiles.Count();
                     int numDone = 0;
