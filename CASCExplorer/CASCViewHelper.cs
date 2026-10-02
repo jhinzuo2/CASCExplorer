@@ -107,19 +107,8 @@ namespace CASCExplorer
 
                 foreach (string platform in platforms)
                 {
-                    var installFiles = _casc.Install.GetEntriesByTags(platform, "x86_64", "US").ToList();
+                    var installFiles = _casc.Install.GetEntriesByTags(platform, "x86_64", "US");
                     var build = _casc.Config.BuildName;
-
-                    // The ARM64 client executable isn't tagged x86_64, so the tag filter above
-                    // misses it. Add it by name alongside the regular WowClassic.exe.
-                    if (platform == "Windows")
-                    {
-                        foreach (var arm in _casc.Install.GetEntriesByName("WowClassic_arm64.exe"))
-                        {
-                            if (!installFiles.Any(f => f.Name.Equals(arm.Name, StringComparison.OrdinalIgnoreCase)))
-                                installFiles.Add(arm);
-                        }
-                    }
 
                     int numFiles = installFiles.Count();
                     int numDone = 0;
@@ -149,24 +138,65 @@ namespace CASCExplorer
                 string armExe = armEntry.Name;
                 string armPath = Path.Combine(armDir, armExe);
 
-                // 1) via the install manifest entry, trying every encoding key
-                if (_casc.Encoding.GetEntry(armEntry.MD5, out EncodingEntry armEnc))
+                bool haveEnc = _casc.Encoding.GetEntry(armEntry.MD5, out EncodingEntry armEnc);
+
+                bool ArmDone() => File.Exists(armPath) && (!haveEnc || armEnc.Size <= 0 || new FileInfo(armPath).Length == armEnc.Size);
+
+                // An x64 install doesn't hold the arm64 data locally, so this usually falls back to the CDN.
+                // CascLib only ever uses the first CDN host and gives up on a 403, so try every host
+                // from build.info/cdns ourselves, trying every encoding key on each, and keep the errors.
+                var errors = new List<string>();
+                string oldOverride = CASCConfig.CDNHostOverride;
+                try
                 {
-                    foreach (var key in armEnc.Keys)
+                    var cfg = _casc.Config;
+                    string hostList = cfg.OnlineMode ? cfg.GetCdnsVariable("Hosts") : cfg.GetBuildInfoVariable("CDNHosts");
+
+                    var hosts = new List<string>();
+                    if (!string.IsNullOrWhiteSpace(oldOverride))
+                        hosts.Add(oldOverride);
+                    hosts.AddRange((hostList ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries));
+                    hosts = hosts.Distinct().ToList();
+                    if (hosts.Count == 0)
+                        hosts.Add(null); // default behaviour
+
+                    foreach (var host in hosts)
                     {
-                        _casc.SaveFileTo(key, armDir, armExe);
-                        if (File.Exists(armPath))
+                        CASCConfig.CDNHostOverride = host;
+
+                        if (haveEnc)
+                        {
+                            foreach (var key in armEnc.Keys)
+                            {
+                                try { _casc.SaveFileTo(key, armDir, armExe); }
+                                catch (Exception ex) { errors.Add((host ?? "default host") + ": " + ex.Message); }
+
+                                if (ArmDone())
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            // not in the encoding table: normal name lookup (root first, then install)
+                            try { _casc.SaveFileTo(armExe, armDir); }
+                            catch (Exception ex) { errors.Add((host ?? "default host") + ": " + ex.Message); }
+                        }
+
+                        if (ArmDone())
                             break;
                     }
                 }
+                finally
+                {
+                    CASCConfig.CDNHostOverride = oldOverride;
+                }
 
-                // 2) fall back to the normal name lookup (root first, then install),
-                //    the same path used when extracting from the file tree
-                if (!File.Exists(armPath))
-                    _casc.SaveFileTo(armExe, armDir);
-
-                if (!File.Exists(armPath))
-                    throw new FileNotFoundException(armExe + " was found in the install manifest but its data could not be read. Other install files were extracted.");
+                if (!ArmDone())
+                    throw new FileNotFoundException(
+                        armExe + " is in the install manifest but its data could not be fetched. " +
+                        "It isn't in the local install and no CDN host would serve it" +
+                        (errors.Count > 0 ? ":\n" + string.Join("\n", errors.Distinct().Take(4)) : ".") +
+                        "\nOther install files were extracted.");
             });
         }
 
