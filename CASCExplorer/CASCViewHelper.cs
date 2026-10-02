@@ -155,7 +155,7 @@ namespace CASCExplorer
                     var hosts = new List<string>();
                     if (!string.IsNullOrWhiteSpace(oldOverride))
                         hosts.Add(oldOverride);
-                    hosts.AddRange((hostList ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries));
+                    hosts.AddRange((hostList ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
                     hosts = hosts.Distinct().ToList();
                     if (hosts.Count == 0)
                         hosts.Add(null); // default behaviour
