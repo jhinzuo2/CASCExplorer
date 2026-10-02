@@ -1,0 +1,35 @@
+name: Build CASCExplorer
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up .NET SDKs (CascLib multi-targets net8.0/net9.0/netstandard2.0)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore and build (Release, Any CPU - runs as 64-bit, Prefer32Bit is off)
+        run: msbuild CASCExplorer.sln /restore /p:Configuration=Release "/p:Platform=Any CPU"
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: CASCExplorer-Release
+          path: CASCExplorer/bin/Release/
+          if-no-files-found: error
