@@ -104,6 +104,7 @@ namespace CASCExplorer
 
             await Task.Run(() => {
                 string[] platforms = ["Windows", "OSX"];
+                var failed = new List<string>();
 
                 foreach (string platform in platforms)
                 {
@@ -115,8 +116,16 @@ namespace CASCExplorer
 
                     foreach (var file in installFiles)
                     {
-                        if (_casc.Encoding.GetEntry(file.MD5, out EncodingEntry enc))
-                            _casc.SaveFileTo(enc.Keys[0], Path.Combine("data", build, $"{platform}_install_files"), file.Name);
+                        try
+                        {
+                            if (_casc.Encoding.GetEntry(file.MD5, out EncodingEntry enc))
+                                _casc.SaveFileTo(enc.Keys[0], Path.Combine("data", build, $"{platform}_install_files"), file.Name);
+                        }
+                        catch (Exception ex)
+                        {
+                            // not in the local install and the CDN refused it: note it and carry on
+                            failed.Add($"{platform}\\{file.Name}: {ex.Message}");
+                        }
 
                         progress.Report((int)(++numDone / (float)numFiles * 100));
                     }
@@ -192,11 +201,15 @@ namespace CASCExplorer
                 }
 
                 if (!ArmDone())
-                    throw new FileNotFoundException(
-                        armExe + " is in the install manifest but its data could not be fetched. " +
-                        "It isn't in the local install and no CDN host would serve it" +
-                        (errors.Count > 0 ? ":\n" + string.Join("\n", errors.Distinct().Take(4)) : ".") +
-                        "\nOther install files were extracted.");
+                {
+                    string eKeys = haveEnc ? string.Join(", ", armEnc.Keys.Select(k => k.ToHexString())) : "no encoding entry";
+                    failed.Add(armExe + " (ekey " + eKeys + ") is not in the local install and no CDN host would serve it" +
+                        (errors.Count > 0 ? ":\n    " + string.Join("\n    ", errors.Distinct().Take(4)) : "."));
+                }
+
+                if (failed.Count > 0)
+                    throw new Exception(failed.Count + " install file(s) could not be extracted, everything else was:\n" +
+                        string.Join("\n", failed.Take(8)) + (failed.Count > 8 ? "\n... and " + (failed.Count - 8) + " more" : ""));
             });
         }
 
